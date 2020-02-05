@@ -1,5 +1,5 @@
 
-wd = '/home/xin/OneDrive/Working_directory/DDRE_Sampling_GANs/STL10_64'
+wd = './STL10_64'
 
 import os
 os.chdir(wd)

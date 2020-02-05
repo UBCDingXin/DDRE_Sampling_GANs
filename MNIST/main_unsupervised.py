@@ -1,6 +1,6 @@
 
 import os
-wd = '/home/xin/OneDrive/Working_directory/DDRE_Sampling_GANs/MNIST'
+wd = './MNIST'
 
 os.chdir(wd)
 import timeit

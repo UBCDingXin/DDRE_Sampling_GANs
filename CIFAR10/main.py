@@ -1,6 +1,6 @@
 
 import os
-wd = '/home/xin/OneDrive/Working_directory/DDRE_Sampling_GANs/CIFAR10'
+wd = './CIFAR10'
 
 os.chdir(wd)
 import timeit
@@ -32,8 +32,6 @@ from Train_DCGAN import train_DCGAN, SampDCGAN
 from Train_WGAN import train_WGANGP, SampWGAN
 from Train_MMDGAN import train_MMDGAN, SampMMDGAN
 from SimpleProgressBar import SimpleProgressBar
-# from metrics.Inception_Score import inception_score
-# from metrics.fid_score import fid_score
 from eval_metrics import FID, FID_RAW, IS_RAW
 
 #######################################################################################

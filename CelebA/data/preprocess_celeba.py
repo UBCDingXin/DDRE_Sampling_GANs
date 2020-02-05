@@ -4,7 +4,7 @@
 Preprocess Celeb A dataset
 """
 
-wd = "/home/xin/Documents/celeba_preprocessing"
+wd = "./celeba_preprocessing"
 
 import os
 os.chdir(wd)
@@ -132,18 +132,18 @@ for i in range(N_CLASS):
 
 ######################
 ## !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-### combine some class
-#combine_indices = [[1, 2], [5, 6]]
-#for i in range(len(combine_indices)):
-#    min_label = min(combine_indices[i])
-#    for j in range(len(combine_indices[i])):
-#        indx_i = np.where(labels==combine_indices[i][j])[0]
-#        labels[indx_i] = min_label
-### relabeling
-#unique_labels_old = list(set(labels))
-#for i in range(len(unique_labels_old)):
-#    labels[labels==unique_labels_old[i]] = i
-#N_CLASS = len(set(labels))
+## combine some class
+combine_indices = [[1, 2], [5, 6]]
+for i in range(len(combine_indices)):
+    min_label = min(combine_indices[i])
+    for j in range(len(combine_indices[i])):
+        indx_i = np.where(labels==combine_indices[i][j])[0]
+        labels[indx_i] = min_label
+## relabeling
+unique_labels_old = list(set(labels))
+for i in range(len(unique_labels_old)):
+    labels[labels==unique_labels_old[i]] = i
+N_CLASS = len(set(labels))
 
 
 #split into training and testing set

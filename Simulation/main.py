@@ -32,7 +32,7 @@ Prop. of good samples (within 4 sd) and Prop. of recovered modes
 
 '''
 
-wd = '/home/xin/OneDrive/Working_directory/DDRE_Sampling_GANs/Simulation'
+wd = './Simulation'
 
 import os
 os.chdir(wd)

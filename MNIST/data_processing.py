@@ -1,5 +1,5 @@
 
-wd = '/home/xin/OneDrive/Working_directory/DDRE_Sampling_GANs/MNIST'
+wd = './MNIST'
 
 import os
 os.chdir(wd)
@@ -11,7 +11,7 @@ import h5py
 import random
 from PIL import Image
 
-N_TRAIN = 1000
+N_TRAIN = 5000
 N_VALID = 10000
 
 IMG_SIZE = 28

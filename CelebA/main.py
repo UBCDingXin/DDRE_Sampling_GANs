@@ -1,6 +1,6 @@
 
 import os
-wd = '/home/xin/OneDrive/Working_directory/DDRE_Sampling_GANs/CelebA'
+wd = './CelebA'
 
 os.chdir(wd)
 import timeit
@@ -37,10 +37,6 @@ from metrics.Inception_Score import inception_score
 from metrics.fid_score import fid_score
 
 
-# from SimpleProgressBar import SimpleProgressBar
-# from metrics.Inception_Score import inception_score
-# from metrics.fid_score import fid_score
-# from eval_metrics import FID, FID_RAW, IS_RAW
 
 #######################################################################################
 '''                                   Settings                                      '''
@@ -120,14 +116,6 @@ NCPU = multiprocessing.cpu_count()
 # NCPU = 0
 cudnn.benchmark = True # For fast training
 
-#-------------------------------
-# GAN
-# if args.GAN == "DCGAN" and (args.epoch_gan<0 or args.lr_g_gan<0 or args.lr_d_gan<0):
-#     args.epoch_gan = 500
-#     args.lr_g_gan = 2e-4; args.lr_d_gan = 2e-4
-# elif args.GAN == "WGANGP" and (args.epoch_gan<0 or args.lr_g_gan<0 or args.lr_d_gan<0):
-#     args.epoch_gan = 2000
-#     args.lr_g_gan = 2e-4; args.lr_d_gan = 2e-4
 
 N_CLASS = 6
 NC = 3 #number of channels
