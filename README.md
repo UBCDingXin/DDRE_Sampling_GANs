@@ -73,7 +73,7 @@ python3 main.py --GAN SNGAN --epoch_gan 500 --DRE DRE_F_SP --Sampling RS --PreCN
 
 # 3. Some Results
 ## 3.1 CIFAR10
-### 3.1.1 IS/FID versus epoch of GAN training
+### 3.1.1 IS/FID versus epoch of DCGAN training
 ![IS_vs_EpochGAN](./images/IS_vs_EpochGAN.png) 
 ![FID_vs_EpochGAN](./images/FID_vs_EpochGAN.png) 
 
