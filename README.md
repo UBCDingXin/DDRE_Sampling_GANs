@@ -44,10 +44,10 @@ python3 PreTrainCNN.py --CNN InceptionV3 --transform --batch_size_train 32
 python3 main_unsupervised.py --N_TRAIN 5000 --GAN DCGAN --epoch_gan 500 --DRE DRE_F_SP --Sampling RS --lambda_DRE 0.01 --samp_nfake 50000 --DR_final_ActFn ReLU --epoch_DRE 500 --epoch_pretrainCNN 200 --base_lr_DRE 1e-4  --comp_ISFID --samp_round 3
 ```
 
-## 2.4 CelebA
+## 2.4 CelebA (64x64)
 First, download (http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html) and uncompress the CelebA dataset. Put the folder 'img_align_celeba' under './data'.
 
-Second, run './data/preprocess_celeba.py' to prepare the data. A h5 file will be generated.
+Second, run './data/preprocess_celeba.py' to prepare the data. A h5 file will be generated. Images are resized to 64x64 instead of cropping. 
 
 Third, 
 
