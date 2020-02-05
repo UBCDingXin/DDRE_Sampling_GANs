@@ -18,14 +18,6 @@ import timeit
 from models import *
 import numpy as np
 
-
-
-NC = 3
-IMG_SIZE=32
-
-
-
-
 ###########################################################################
 # MMD stuffs
 
@@ -218,7 +210,7 @@ def grad_norm(m, norm_type=2):
 # Train MMDGAN
 
 
-def train_MMDGAN(EPOCHS_GAN, GAN_Latent_Length, trainloader, netG, netD, one_sided, optimizerG, optimizerD, save_GANimages_InTrain_folder, CRITIC_ITERS=5, NC = 3, IMG_SIZE = 32, save_models_folder = None, ResumeEpoch = 0, device="cuda"):
+def train_MMDGAN(EPOCHS_GAN, GAN_Latent_Length, trainloader, netG, netD, one_sided, optimizerG, optimizerD, save_GANimages_InTrain_folder, CRITIC_ITERS=5, NC = 1, IMG_SIZE = 28, save_models_folder = None, ResumeEpoch = 0):
 
     # sigma for MMD
     base = 1.0
@@ -226,7 +218,7 @@ def train_MMDGAN(EPOCHS_GAN, GAN_Latent_Length, trainloader, netG, netD, one_sid
     sigma_list = [sigma / base for sigma in sigma_list]
 
     # put variable into cuda device
-    fixed_noise = torch.cuda.FloatTensor(100, GAN_Latent_Length, 1, 1).normal_(0, 1)
+    fixed_noise = torch.cuda.FloatTensor(100, GAN_Latent_Length).normal_(0, 1)
     one = torch.cuda.FloatTensor([1])
     mone = one * -1
 
@@ -237,12 +229,13 @@ def train_MMDGAN(EPOCHS_GAN, GAN_Latent_Length, trainloader, netG, netD, one_sid
     lambda_AE_Y = 8.0
     lambda_rg = 16.0
 
-    netG = netG.to(device)
-    netD = netD.to(device)
+    netG = netG.cuda()
+    netD = netD.cuda()
 
     if save_models_folder is not None and ResumeEpoch>0:
         save_file = save_models_folder + "/MMDGAN_checkpoint_intrain/MMDGAN_checkpoint_epoch" + str(ResumeEpoch) + ".pth"
         checkpoint = torch.load(save_file)
+        EPOCHS_GAN = EPOCHS_GAN - ResumeEpoch
         netG.load_state_dict(checkpoint['netG_state_dict'])
         netD.load_state_dict(checkpoint['netD_state_dict'])
         optimizerG.load_state_dict(checkpoint['optimizerG_state_dict'])
@@ -252,14 +245,13 @@ def train_MMDGAN(EPOCHS_GAN, GAN_Latent_Length, trainloader, netG, netD, one_sid
         gen_iterations = 0
     #end if
 
-
     time = timeit.default_timer()
     # gen_iterations = 0
-    for t in range(ResumeEpoch, EPOCHS_GAN):
+    for t in range(EPOCHS_GAN):
         data_iter = iter(trainloader)
         i = 0
         while (i < len(trainloader)):
-            #data_iter = iter(trainloader)
+#            data_iter = iter(trainloader)
             # ---------------------------
             # Optimize over NetD
             # ---------------------------
@@ -290,12 +282,12 @@ def train_MMDGAN(EPOCHS_GAN, GAN_Latent_Length, trainloader, netG, netD, one_sid
                 netD.zero_grad()
 
                 x_cpu, _ = data
-                x = Variable(x_cpu.to(device))
+                x = Variable(x_cpu.cuda())
                 batch_size = x.size(0)
 
                 f_enc_X_D, f_dec_X_D = netD(x)
 
-                noise = torch.cuda.FloatTensor(batch_size, GAN_Latent_Length, 1, 1).normal_(0, 1)
+                noise = torch.cuda.FloatTensor(batch_size, GAN_Latent_Length).normal_(0, 1)
                 noise = Variable(noise, volatile=True)  # total freeze netG
                 y = Variable(netG(noise).data)
 
@@ -334,12 +326,12 @@ def train_MMDGAN(EPOCHS_GAN, GAN_Latent_Length, trainloader, netG, netD, one_sid
                 netG.zero_grad()
 
                 x_cpu, _ = data
-                x = Variable(x_cpu.to(device))
+                x = Variable(x_cpu.cuda())
                 batch_size = x.size(0)
 
                 f_enc_X, f_dec_X = netD(x)
 
-                noise = torch.cuda.FloatTensor(batch_size, GAN_Latent_Length, 1, 1).normal_(0, 1)
+                noise = torch.cuda.FloatTensor(batch_size, GAN_Latent_Length).normal_(0, 1)
                 noise = Variable(noise)
                 y = netG(noise)
 
@@ -381,7 +373,7 @@ def train_MMDGAN(EPOCHS_GAN, GAN_Latent_Length, trainloader, netG, netD, one_sid
             save_file = save_models_folder + "/MMDGAN_checkpoint_intrain/"
             if not os.path.exists(save_file):
                 os.makedirs(save_file)
-            save_file = save_file + "MMDGAN_checkpoint_epoch" + str(t+1) + ".pth"
+            save_file = save_file + "MMDGAN_checkpoint_epoch" + str(t+1+ResumeEpoch) + ".pth"
             torch.save({
                     'epoch': t,
                     'gen_iterations': gen_iterations,
@@ -394,14 +386,14 @@ def train_MMDGAN(EPOCHS_GAN, GAN_Latent_Length, trainloader, netG, netD, one_sid
     return netG, netD, optimizerG, optimizerD
 
 
-def SampMMDGAN(netG, GAN_Latent_Length = 128, NFAKE = 10000, batch_size = 500, device="cuda"):
-    raw_fake_images = np.zeros((NFAKE+batch_size, NC, IMG_SIZE, IMG_SIZE))
-    netG=netG.to(device)
+
+def SampMMDGAN(netG, GAN_Latent_Length = 128, NFAKE = 10000, batch_size = 500):
+    raw_fake_images = np.zeros((NFAKE+batch_size, 1, 28, 28))
     netG.eval()
     with torch.no_grad():
         tmp = 0
         while tmp < NFAKE:
-            z = torch.randn(batch_size, GAN_Latent_Length, 1, 1, dtype=torch.float).to(device)
+            z = torch.randn(batch_size, GAN_Latent_Length, dtype=torch.float).cuda()
             batch_fake_images = netG(z)
             raw_fake_images[tmp:(tmp+batch_size)] = batch_fake_images.cpu().detach().numpy()
             tmp += batch_size

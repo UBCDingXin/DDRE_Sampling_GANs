@@ -1,6 +1,6 @@
 
 import os
-wd = '/home/xin/OneDrive/Working_directory/DDRE_Sampling_GANs/CIFAR10'
+wd = '/home/xin/OneDrive/Working_directory/DDRE_Sampling_GANs/MNIST'
 
 os.chdir(wd)
 import timeit
@@ -24,16 +24,15 @@ from sklearn.linear_model import LogisticRegression
 import multiprocessing
 from multiprocessing import Pool
 from scipy.stats import ks_2samp
+import h5py
 
-from utils import weights_init, SimpleProgressBar, IMGs_dataset, PlotLoss, SampPreGAN, PredictLabel
+from utils import *
 from models import *
-from Train_DRE import train_DREP, train_DREF
+from Train_DRE import *
 from Train_DCGAN import train_DCGAN, SampDCGAN
 from Train_WGAN import train_WGANGP, SampWGAN
 from Train_MMDGAN import train_MMDGAN, SampMMDGAN
 from SimpleProgressBar import SimpleProgressBar
-# from metrics.Inception_Score import inception_score
-# from metrics.fid_score import fid_score
 from eval_metrics import FID, FID_RAW, IS_RAW
 
 #######################################################################################
@@ -56,12 +55,16 @@ parser.add_argument('--seed', type=int, default=2019, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--no_cuda', action='store_true', default=False,
                     help='enables CUDA training')
+parser.add_argument('--N_TRAIN', type=int, default=1000, metavar='N',
+                    help='number of training images')
 
 ''' GAN settings '''
-parser.add_argument('--epoch_gan', type=int, default=-1) #default -1
-parser.add_argument('--lr_g_gan', type=float, default=-1,
+parser.add_argument('--transform_GAN_and_DRE', action='store_true', default=True,
+                    help='rotate or crop images for GAN and DRE training')
+parser.add_argument('--epoch_gan', type=int, default=2000)
+parser.add_argument('--lr_g_gan', type=float, default=1e-4,
                     help='learning rate for generator')
-parser.add_argument('--lr_d_gan', type=float, default=-1,
+parser.add_argument('--lr_d_gan', type=float, default=1e-4,
                     help='learning rate for discriminator')
 parser.add_argument('--dim_gan', type=int, default=128,
                     help='Latent dimension of GAN')
@@ -82,7 +85,7 @@ parser.add_argument('--PreCNN_DR', type=str, default='ResNet34',
                     help='Pre-trained CNN for DRE in Feature Space; Candidate: ResNetXX')
 parser.add_argument('--epoch_pretrainCNN', type=int, default=200)
 parser.add_argument('--transform_PreCNN_DR', action='store_true', default=True,
-                    help='flip or crop images for CNN training')
+                    help='rotate or crop images for CNN training')
 parser.add_argument('--epoch_DRE', type=int, default=200) #default -1
 parser.add_argument('--base_lr_DRE', type=float, default=1e-4,
                     help='learning rate')
@@ -105,7 +108,7 @@ parser.add_argument('--replot_train_loss', action='store_true', default=False,
 '''Sampling and Comparing Settings'''
 parser.add_argument('--samp_round', type=int, default=3)
 parser.add_argument('--samp_nfake', type=int, default=50000)
-parser.add_argument('--samp_batch_size', type=int, default=10000)
+parser.add_argument('--samp_batch_size', type=int, default=5000)
 parser.add_argument('--samp_selectwithinclass', action='store_true', default=False,
                     help='In comparison, reselect samples within each class?')
 parser.add_argument('--realdata_ISFID', action='store_true', default=False,
@@ -127,23 +130,12 @@ cudnn.benchmark = True # For fast training
 
 #-------------------------------
 # GAN
-if args.GAN == "DCGAN" and (args.epoch_gan<0 or args.lr_g_gan<0 or args.lr_d_gan<0):
-    args.epoch_gan = 500
-    args.lr_g_gan = 2e-4; args.lr_d_gan = 2e-4
-elif args.GAN == "WGANGP" and (args.epoch_gan<0 or args.lr_g_gan<0 or args.lr_d_gan<0):
-    args.epoch_gan = 2000
-    args.lr_g_gan = 2e-4; args.lr_d_gan = 2e-4
-elif args.GAN == "MMDGAN" and (args.epoch_gan<0 or args.lr_g_gan<0 or args.lr_d_gan<0):
-    args.epoch_gan = 4000
-    args.lr_g_gan = 5e-5; args.lr_d_gan = 5e-5
-
-
 N_CLASS = 10
-NC = 3 #number of channels
-IMG_SIZE = 32
+NC = 1 #number of channels
+IMG_SIZE = 28
 ResumeEpoch_gan = args.resumeTrain_gan
 resize = (299, 299)
-ADAM_beta1 = 0.5 #parameters for ADAM optimizer;
+ADAM_beta1 = 0.5 #parameters for ADAM optimizer
 ADAM_beta2 = 0.999
 
 #-------------------------------
@@ -152,10 +144,12 @@ NROUND = args.samp_round
 NFAKE = args.samp_nfake
 NPOOL = NFAKE*2 #Pool size for reselecting imgs
 samp_batch_size = args.samp_batch_size #batch size for dsampling from GAN or enhanced sampler
+if samp_batch_size>args.N_TRAIN:
+    samp_batch_size = args.N_TRAIN
 MH_K = 640
 MH_mute = True #do not print sampling progress
 DR_comp_batch_size = 1000
-assert samp_batch_size>DR_comp_batch_size
+assert samp_batch_size>=DR_comp_batch_size
 
 #-------------------------------
 # seeds
@@ -181,25 +175,46 @@ os.makedirs(save_traincurves_folder,exist_ok=True)
 #######################################################################################
 '''                                    Data loader                                 '''
 #######################################################################################
-means = (0.5, 0.5, 0.5)
-stds = (0.5, 0.5, 0.5)
-transform_train = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(means, stds),
-    ])
-
-transform_test = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize(means, stds),
-])
-
-trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
+if args.N_TRAIN==60000:
+    if args.transform_GAN_and_DRE:
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(28, padding=4),
+            transforms.RandomRotation(15),
+            transforms.ToTensor(),
+            transforms.Normalize([0.5], [0.5]),
+        ])
+    else:
+        transform_train = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize([0.5], [0.5]),
+        ])
+    trainset = torchvision.datasets.MNIST(root='./data', train=True, download=True, transform=transform_train)
+    images_train = trainset.data.numpy()
+    images_train = images_train[:,np.newaxis,:,:]
+    labels_train = trainset.targets.numpy()
+else:
+    h5py_file = wd+'/data/MNIST_reduced_trainset_'+str(args.N_TRAIN)+'.h5'
+    hf = h5py.File(h5py_file, 'r')
+    images_train = hf['images_train'][:]
+    labels_train = hf['labels_train'][:]
+    hf.close()
+    if args.transform_GAN_and_DRE:
+        trainset = IMGs_dataset(images_train, labels_train, normalize=True, rotate=True, degrees = 15, crop=True, crop_size=28, crop_pad=4)
+    else:
+        trainset = IMGs_dataset(images_train, labels_train, normalize=True, rotate=False, degrees = 15, crop=False, crop_size=28, crop_pad=4)
+#end if args.N_TRAIN
 trainloader_GAN = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size_gan, shuffle=True, num_workers=NCPU)
 trainloader_DRE = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size_DRE, shuffle=True, num_workers=NCPU)
 
-testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
-testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=NCPU)
-
+transform_test = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize([0.5], [0.5]),
+])
+testset = torchvision.datasets.MNIST(root='./data', train=False, download=True, transform=transform_test)
+testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=8)
+images_test = testset.data.numpy()
+images_test = images_test[:,np.newaxis,:,:]
+labels_test = testset.targets.numpy()
 
 #######################################################################################
 '''                             Train GAN or Load Pre-trained GAN                '''
@@ -284,6 +299,7 @@ elif args.GAN == "MMDGAN" and not os.path.isfile(Filename_GAN):
         'netG_state_dict': netG.state_dict(),
         'netD_state_dict': netD.state_dict(),
     }, Filename_GAN)
+
 torch.cuda.empty_cache()
 stop = timeit.default_timer()
 print("GAN training finished! Time elapses: {}s".format(stop - start))
@@ -354,17 +370,13 @@ if args.DRE in ['DRE_F_SP', 'DRE_F_uLSIF', 'DRE_F_DSKL', 'DRE_F_BARR',
 
     # PreTrain CNN for DRE in feature space
     _, net_name = CNN_net_init(args.PreCNN_DR, N_CLASS, NGPU, isometric_map = True)
-    Filename_PreCNNForDRE = save_models_folder + '/ckpt_' + net_name + '_epoch_' + str(args.epoch_pretrainCNN) + '_SEED_' + str(args.seed) + '_Transformation_' + str(args.transform_PreCNN_DR)
+    Filename_PreCNNForDRE = save_models_folder + '/ckpt_' + net_name + '_epoch_' + str(args.epoch_pretrainCNN) + '_SEED_' + str(args.seed) + '_Transformation_' + str(args.transform_PreCNN_DR) + '_NTRAIN_' + str(args.N_TRAIN)
 
     #-----------------------------------------
     # Train DR model
     start = timeit.default_timer()
     # initialize DRE model
     netDR = DR_net_init(args.DR_Net)
-    # netDR.apply(weights_init)
-    # optimizer = torch.optim.SGD(net.parameters(), lr = args.base_lr_DRE, momentum= 0.9, weight_decay=WEIGHT_DECAY, nesterov=False)
-    # optimizer = torch.optim.RMSprop(net.parameters(), lr= args.base_lr_DRE, alpha=0.99, eps=1e-08, weight_decay=args.weightdecay_DRE, momentum=0.9, centered=False)
-    # optimizer = torch.optim.Adam(netDR.parameters(), lr = args.base_lr_DRE, betas=(ADAM_beta1, ADAM_beta2), weight_decay=args.weightdecay_DRE)
 
     if DRE_loss_type == "DSKL" and args.DRE=="DRE_P_DSKL":
         optimizer = torch.optim.RMSprop(netDR.parameters(), lr= args.base_lr_DRE, alpha=0.99, eps=1e-08, weight_decay=args.weightdecay_DRE, momentum=0.9, centered=False)
@@ -443,25 +455,12 @@ if args.DRE in ['DRE_F_SP', 'DRE_F_uLSIF', 'DRE_F_DSKL', 'DRE_F_BARR',
                 else:
                     _, batch_features = PreNetDRE(batch_imgs)
                     batch_weights = netDR(batch_features)
-                density_ratios[tmp:(tmp+len(batch_weights))] = batch_weights.cpu().detach().numpy()
+                density_ratios[tmp:(tmp+batch_size_tmp)] = batch_weights.cpu().detach().numpy()
                 tmp += batch_size_tmp
             #end while
         # print("\n End computing density ratio.")
         return density_ratios[0:n_imgs]
 
-    # # density ratio function
-    # def fn_density_ratio(img):
-    #     #img is a tensor: 1*NC*IMG_SIZE*IMG_SIZE
-    #     netDR.eval()
-    #     if args.DRE[4] == "F":
-    #         PreNetDRE.eval()
-    #     with torch.no_grad():
-    #         img = img.type(torch.float).to(device)
-    #         if args.DRE[4] == "P":
-    #             return netDR(img)
-    #         else:
-    #             _, img_feature = PreNetDRE(img)
-    #             return netDR(img_feature)
 
 ###################
 # DRE based on GAN property
@@ -485,7 +484,7 @@ elif args.DRE in ['disc', 'disc_KeepTrain', 'disc_KeepTrain_MHcal', 'disc_MHcal'
 
 
     #-----------------------------------
-    if args.DRE == 'disc': #use GAN property to compute density ratio; ratio=D/(1-D); #for DCGAN, WGAN
+    if args.DRE == 'disc': #use GAN property to compute density ratio; ratio=D/(1-D); #for DCGAN, WGAN,
         # function for computing a bunch of images
         # def comp_density_ratio(imgs, netD):
         def comp_density_ratio(imgs):
@@ -502,7 +501,7 @@ elif args.DRE in ['disc', 'disc_KeepTrain', 'disc_KeepTrain_MHcal', 'disc_MHcal'
             with torch.no_grad():
                 tmp = 0
                 while tmp < n_imgs:
-                    batch_imgs = data_iter.next()
+                    batch_imgs = data_iter.next() #if labels is not None, then batch_imgs is a tuple (images, labels)
                     batch_imgs = batch_imgs.type(torch.float).to(device)
                     if args.GAN == "DCGAN":
                         disc_probs = netD(batch_imgs).cpu().detach().numpy()
@@ -511,7 +510,7 @@ elif args.DRE in ['disc', 'disc_KeepTrain', 'disc_KeepTrain_MHcal', 'disc_MHcal'
                     elif args.GAN == "WGANGP":
                         disc_scores_exp = np.exp(netD(batch_imgs).cpu().detach().numpy())
                         disc_scores_exp = np.clip(disc_scores_exp.astype(np.float), 1e-14)
-                        density_ratios[tmp:(tmp+len(disc_scores_exp))] = disc_scores_exp
+                        density_ratios[tmp:(tmp+batch_size_tmp)] = disc_scores_exp
                     tmp += batch_size_tmp
                 #end while
             # print("\n End computing density ratio.")
@@ -520,6 +519,7 @@ elif args.DRE in ['disc', 'disc_KeepTrain', 'disc_KeepTrain_MHcal', 'disc_MHcal'
 
     #-----------------------------------
     if args.DRE in ['disc_KeepTrain','disc_KeepTrain_MHcal']: #for DCGAN only
+        assert args.GAN == "DCGAN"
         epoch_KeepTrain = 2
         batch_size_KeepTrain = 256
         Filename_KeepTrain_Disc = save_models_folder + '/ckpt_KeepTrainDisc_epoch_'+str(epoch_KeepTrain)+'_'+args.GAN +'_epoch_' + str(args.epoch_gan) + '_SEED_' + str(args.seed)
@@ -528,7 +528,7 @@ elif args.DRE in ['disc', 'disc_KeepTrain', 'disc_KeepTrain_MHcal', 'disc_MHcal'
             # keep train the discriminator
             n_test = testset.data.shape[0]
             batch_size_tmp = 500
-            cal_labels = np.concatenate((np.zeros((n_test,1)), np.ones((n_test,1))), axis=0)
+            cal_labels = np.concatenate((np.zeros((n_test,1)), np.ones((n_test,1))), axis=0) #fake or real
             cal_imgs_fake = fn_sampleGAN(nfake=n_test, batch_size=batch_size_tmp)
             cal_imgs_real = np.transpose(testset.data, (0, 3, 1, 2))
             #standarize real images
@@ -599,7 +599,7 @@ elif args.DRE in ['disc', 'disc_KeepTrain', 'disc_KeepTrain_MHcal', 'disc_MHcal'
                    batch_imgs = batch_imgs.type(torch.float).to(device)
                    disc_probs = netD(batch_imgs).cpu().detach().numpy()
                    disc_probs = np.clip(disc_probs.astype(np.float), 1e-14, 1 - 1e-14)
-                   density_ratios[tmp:(tmp+len(disc_probs))] = np.divide(disc_probs, 1-disc_probs)
+                   density_ratios[tmp:(tmp+batch_size_tmp)] = np.divide(disc_probs, 1-disc_probs)
                    tmp += batch_size_tmp
                #end while
            # print("\n End computing density ratio.")
@@ -612,11 +612,10 @@ elif args.DRE in ['disc', 'disc_KeepTrain', 'disc_KeepTrain_MHcal', 'disc_MHcal'
         cal_labels_fake = np.zeros((n_test,1))
         cal_labels_real = np.ones((n_test,1))
         cal_imgs_fake = fn_sampleGAN(nfake=n_test, batch_size=batch_size_tmp)
-        cal_imgs_real = np.transpose(testset.data, (0, 3, 1, 2))
+        cal_imgs_real = images_test
         #standarize real images
         cal_imgs_real = cal_imgs_real/255.0
-        for i in range(NC):
-            cal_imgs_real[:,i,:,:] = (cal_imgs_real[:,i,:,:]-means[i])/stds[i]
+        cal_imgs_real = (cal_imgs_real-0.5)/0.5
         dataset_fake = IMGs_dataset(cal_imgs_fake)
         dataloader_fake = torch.utils.data.DataLoader(dataset_fake, batch_size=batch_size_tmp, shuffle=False, num_workers=0)
         dataset_real = IMGs_dataset(cal_imgs_real)
@@ -639,7 +638,7 @@ elif args.DRE in ['disc', 'disc_KeepTrain', 'disc_KeepTrain_MHcal', 'disc_MHcal'
                     batch_imgs = batch_imgs.type(torch.float).to(device)
                     disc_probs = netD(batch_imgs).cpu().detach().numpy()
                     disc_probs = np.clip(disc_probs.astype(np.float), 1e-14, 1 - 1e-14)
-                    disc_scores[tmp:(tmp+len(disc_probs))] = np.log(np.divide(disc_probs, 1-disc_probs))
+                    disc_scores[tmp:(tmp+batch_size_tmp)] = np.log(np.divide(disc_probs, 1-disc_probs))
                     tmp += batch_size_tmp
                 #end while
             return disc_scores[0:n_imgs]
@@ -676,141 +675,113 @@ elif args.DRE in ['disc', 'disc_KeepTrain', 'disc_KeepTrain_MHcal', 'disc_MHcal'
            density_ratios = np.divide(disc_probs, 1-disc_probs)
            return density_ratios.reshape(-1,1)
 
-        # # density ratio function
-        # def fn_density_ratio(img):
-        #     #img is a tensor: 1*NC*IMG_SIZE*IMG_SIZE
-        #     disc_score = fn_disc_score(img)
-        #     disc_prob = (cal_logReg.predict_proba(disc_score))[0,1]
-        #     disc_prob = np.clip(disc_prob.astype(np.float), 1e-14, 1-1e-14)
-        #     return disc_prob/(1-disc_prob)
 
-
-###################
-# DRE based on property of a Bayes optimal classifier
-elif args.DRE == 'BayesClass': #use the property of a Bayes optimal classifier
-    ####################################
-    # Load Pre-trained GAN
-    checkpoint = torch.load(Filename_GAN)
-    if args.GAN == "DCGAN":
-        netG = cnn_generator(NGPU, args.dim_gan).to(device)
-        # netD = cnn_discriminator(True, NGPU).to(device)
-        def fn_sampleGAN(nfake, batch_size):
-            return SampDCGAN(netG, GAN_Latent_Length = args.dim_gan, NFAKE = nfake, batch_size = batch_size, device=device)
-    elif args.GAN == "WGANGP":
-        netG = cnn_generator(NGPU, args.dim_gan).to(device)
-        # netD = cnn_discriminator(False, NGPU).to(device)
-        def fn_sampleGAN(nfake, batch_size):
-            return SampWGAN(netG, GAN_Latent_Length = args.dim_gan, NFAKE = nfake, batch_size = batch_size, device=device)
-    elif args.GAN == "MMDGAN":
-        # raise Exception('Current DRE method "%s" is not suitable for MMDGAN!' % (args.DRE))
-        G_decoder = MMDGAN_Decoder(IMG_SIZE, NC, k=args.dim_gan, ngf=64, ngpu=NGPU)
-        netG = MMDGAN_G(G_decoder).to(device)
-        def fn_sampleGAN(nfake, batch_size):
-            return SampMMDGAN(netG, GAN_Latent_Length = args.dim_gan, NFAKE = nfake, batch_size = batch_size, device=device)
-    netG.load_state_dict(checkpoint['netG_state_dict'])
-
-    ####################################
-    # Train a Bayes optimal classifier
-    Filename_BayesClass = save_models_folder + '/ckpt_BayesClass_SEED_' + str(args.seed) + "_" + args.GAN + "_epoch_" + str(args.epoch_gan)
-    if not os.path.isfile(Filename_BayesClass):
-        # train a binary classifier to distinguish real and fake images
-        n_test = testset.data.shape[0]
-        batch_size_tmp = 100
-        Bayes_imgs_fake = fn_sampleGAN(nfake=n_test, batch_size=batch_size_tmp)
-        Bayes_imgs_real = np.transpose(testset.data, (0, 3, 1, 2))
-        #standarize real images
-        Bayes_imgs_real = Bayes_imgs_real/255.0
-        for i in range(NC):
-            Bayes_imgs_real[:,i,:,:] = (Bayes_imgs_real[:,i,:,:]-means[i])/stds[i]
-        Bayes_labels = np.concatenate((np.zeros((n_test,1)), np.ones((n_test,1))), axis=0)
-        dataset_tmp = IMGs_dataset(np.concatenate((Bayes_imgs_fake, Bayes_imgs_real), axis=0), Bayes_labels)
-        dataloader_tmp = torch.utils.data.DataLoader(dataset_tmp, batch_size=batch_size_tmp, shuffle=True, num_workers=0)
-        del Bayes_imgs_fake, Bayes_imgs_real; gc.collect()
-
-        #--------------------------------
-        # Train a binary classifier
-        BayesClass_net = BiClassifier(ngpu=NGPU, num_channels=NC, image_size=IMG_SIZE).to(device)
-        criterion = nn.BCELoss()
-        optimizer = torch.optim.Adam(BayesClass_net.parameters(), lr=1e-3)
-        # optimizer = torch.optim.SGD(BayesClass_net.parameters(), lr = 1e-4, momentum= 0.9)
-
-        for epoch in range(100):
-            BayesClass_net.train()
-            train_loss = 0
-            for batch_idx, (images, labels) in enumerate(dataloader_tmp):
-                images = images.type(torch.float).to(device)
-                labels = labels.type(torch.float).to(device)
-                optimizer.zero_grad()
-                outputs = BayesClass_net(images)
-                loss = criterion(outputs, labels)
-                loss.backward()
-                train_loss += loss.item()
-                optimizer.step()
-                if batch_idx % 10 == 0:
-                    print('BayesClass Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
-                        epoch+1, batch_idx * len(images), len(dataloader_tmp.dataset),
-                        100. * batch_idx / len(dataloader_tmp),
-                        loss.item() / len(images)))
-            #end for batch_idx
-            train_loss = train_loss / len(dataloader_tmp.dataset)
-            print('====> Epoch: {} Average loss: {:.6f}'.format(
-                  epoch+1, train_loss))
-            del images, labels, outputs; gc.collect()
-            torch.cuda.empty_cache()
-        # save model
-        torch.save({
-        'net_state_dict': BayesClass_net.state_dict(),
-        }, Filename_BayesClass)
-    else:
-        checkpoint_BayesClass = torch.load(Filename_BayesClass)
-        BayesClass_net = BiClassifier(ngpu=NGPU, num_channels=NC, image_size=IMG_SIZE)
-        BayesClass_net.load_state_dict(checkpoint_BayesClass['net_state_dict'])
-        BayesClass_net = BayesClass_net.to(device)
-
-    # function for computing a bunch of images
-    def comp_density_ratio(imgs):
-       #imgs: an numpy array
-       n_imgs = imgs.shape[0]
-       batch_size_tmp = DR_comp_batch_size
-       dataset_tmp = IMGs_dataset(imgs)
-       dataloader_tmp = torch.utils.data.DataLoader(dataset_tmp, batch_size=batch_size_tmp, shuffle=False, num_workers=0)
-       data_iter = iter(dataloader_tmp)
-       density_ratios = np.zeros((n_imgs+batch_size_tmp, 1))
-
-       #print("\n Begin computing density ratio for images >>")
-       BayesClass_net.eval()
-       with torch.no_grad():
-           tmp = 0
-           while tmp < n_imgs:
-               batch_imgs = data_iter.next()
-               batch_imgs = batch_imgs.type(torch.float).to(device)
-               disc_probs = BayesClass_net(batch_imgs).cpu().detach().numpy()
-               disc_probs = np.clip(disc_probs.astype(np.float), 1e-14, 1 - 1e-14)
-               density_ratios[tmp:(tmp+len(disc_probs))] = np.divide(disc_probs, 1-disc_probs)
-               tmp += batch_size_tmp
-           #end while
-       #print("\n End computing density ratio.")
-       return density_ratios[0:n_imgs]
-
-    # # density ratio function
-    # def fn_density_ratio(img):
-    #     #img is a tensor: 1*NC*IMG_SIZE*IMG_SIZE
-    #     BayesClass_net.eval()
-    #     with torch.no_grad():
-    #         img = img.type(torch.float).to(device)
-    #         disc_prob = BayesClass_net(img).cpu().detach().numpy()
-    #         disc_prob = disc_prob[0,0]
-    #         disc_prob = np.clip(disc_prob.astype(np.float), 1e-14, 1 - 1e-14)
-    #         return disc_prob/(1-disc_prob)
-
-
-# test_images = np.transpose(testset.data, (0, 3, 1, 2))
-# test_images = test_images/255.0
-# for i in range(NC):
-#     test_images[:,i,:,:] = (test_images[:,i,:,:]-means[i])/stds[i]
+# ###################
+# # DRE based on property of a Bayes optimal classifier
+# elif args.DRE == 'BayesClass': #use the property of a Bayes optimal classifier
+#     ####################################
+#     # Load Pre-trained GAN
+#     checkpoint = torch.load(Filename_GAN)
+#     if args.GAN == "DCGAN":
+#         netG = cnn_generator(NGPU, args.dim_gan).to(device)
+#         # netD = cnn_discriminator(True, NGPU).to(device)
+#         def fn_sampleGAN(nfake, batch_size):
+#             return SampDCGAN(netG, GAN_Latent_Length = args.dim_gan, NFAKE = nfake, batch_size = batch_size, device=device)
+#     elif args.GAN == "WGANGP":
+#         netG = cnn_generator(NGPU, args.dim_gan).to(device)
+#         # netD = cnn_discriminator(False, NGPU).to(device)
+#         def fn_sampleGAN(nfake, batch_size):
+#             return SampWGAN(netG, GAN_Latent_Length = args.dim_gan, NFAKE = nfake, batch_size = batch_size, device=device)
+#     elif args.GAN == "MMDGAN":
+#         # raise Exception('Current DRE method "%s" is not suitable for MMDGAN!' % (args.DRE))
+#         G_decoder = MMDGAN_Decoder(IMG_SIZE, NC, k=args.dim_gan, ngf=64, ngpu=NGPU)
+#         netG = MMDGAN_G(G_decoder).to(device)
+#         def fn_sampleGAN(nfake, batch_size):
+#             return SampMMDGAN(netG, GAN_Latent_Length = args.dim_gan, NFAKE = nfake, batch_size = batch_size, device=device)
+#     netG.load_state_dict(checkpoint['netG_state_dict'])
 #
-# ratios = comp_density_ratio(test_images)
-# ratio = fn_density_ratio(torch.from_numpy(test_images[0].reshape(1,3,32,32)))
+#     ####################################
+#     # Train a Bayes optimal classifier
+#     Filename_BayesClass = save_models_folder + '/ckpt_BayesClass_SEED_' + str(args.seed) + "_" + args.GAN + "_epoch_" + str(args.epoch_gan)
+#     if not os.path.isfile(Filename_BayesClass):
+#         # train a binary classifier to distinguish real and fake images
+#         n_test = testset.data.shape[0]
+#         batch_size_tmp = 100
+#         Bayes_imgs_fake = fn_sampleGAN(nfake=n_test, batch_size=batch_size_tmp)
+#         Bayes_imgs_real = np.transpose(testset.data, (0, 3, 1, 2))
+#         #standarize real images
+#         Bayes_imgs_real = Bayes_imgs_real/255.0
+#         for i in range(NC):
+#             Bayes_imgs_real[:,i,:,:] = (Bayes_imgs_real[:,i,:,:]-means[i])/stds[i]
+#         Bayes_labels = np.concatenate((np.zeros((n_test,1)), np.ones((n_test,1))), axis=0)
+#         dataset_tmp = IMGs_dataset(np.concatenate((Bayes_imgs_fake, Bayes_imgs_real), axis=0), Bayes_labels)
+#         dataloader_tmp = torch.utils.data.DataLoader(dataset_tmp, batch_size=batch_size_tmp, shuffle=True, num_workers=0)
+#         del Bayes_imgs_fake, Bayes_imgs_real; gc.collect()
+#
+#         #--------------------------------
+#         # Train a binary classifier
+#         BayesClass_net = BiClassifier(ngpu=NGPU, num_channels=NC, image_size=IMG_SIZE).to(device)
+#         criterion = nn.BCELoss()
+#         optimizer = torch.optim.Adam(BayesClass_net.parameters(), lr=1e-3)
+#         # optimizer = torch.optim.SGD(BayesClass_net.parameters(), lr = 1e-4, momentum= 0.9)
+#
+#         for epoch in range(100):
+#             BayesClass_net.train()
+#             train_loss = 0
+#             for batch_idx, (images, labels) in enumerate(dataloader_tmp):
+#                 images = images.type(torch.float).to(device)
+#                 labels = labels.type(torch.float).to(device)
+#                 optimizer.zero_grad()
+#                 outputs = BayesClass_net(images)
+#                 loss = criterion(outputs, labels)
+#                 loss.backward()
+#                 train_loss += loss.item()
+#                 optimizer.step()
+#                 if batch_idx % 10 == 0:
+#                     print('BayesClass Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
+#                         epoch+1, batch_idx * len(images), len(dataloader_tmp.dataset),
+#                         100. * batch_idx / len(dataloader_tmp),
+#                         loss.item() / len(images)))
+#             #end for batch_idx
+#             train_loss = train_loss / len(dataloader_tmp.dataset)
+#             print('====> Epoch: {} Average loss: {:.6f}'.format(
+#                   epoch+1, train_loss))
+#             del images, labels, outputs; gc.collect()
+#             torch.cuda.empty_cache()
+#         # save model
+#         torch.save({
+#         'net_state_dict': BayesClass_net.state_dict(),
+#         }, Filename_BayesClass)
+#     else:
+#         checkpoint_BayesClass = torch.load(Filename_BayesClass)
+#         BayesClass_net = BiClassifier(ngpu=NGPU, num_channels=NC, image_size=IMG_SIZE)
+#         BayesClass_net.load_state_dict(checkpoint_BayesClass['net_state_dict'])
+#         BayesClass_net = BayesClass_net.to(device)
+#
+#     # function for computing a bunch of images
+#     def comp_density_ratio(imgs):
+#        #imgs: an numpy array
+#        n_imgs = imgs.shape[0]
+#        batch_size_tmp = DR_comp_batch_size
+#        dataset_tmp = IMGs_dataset(imgs)
+#        dataloader_tmp = torch.utils.data.DataLoader(dataset_tmp, batch_size=batch_size_tmp, shuffle=False, num_workers=0)
+#        data_iter = iter(dataloader_tmp)
+#        density_ratios = np.zeros((n_imgs+batch_size_tmp, 1))
+#
+#        #print("\n Begin computing density ratio for images >>")
+#        BayesClass_net.eval()
+#        with torch.no_grad():
+#            tmp = 0
+#            while tmp < n_imgs:
+#                batch_imgs = data_iter.next()
+#                batch_imgs = batch_imgs.type(torch.float).to(device)
+#                disc_probs = BayesClass_net(batch_imgs).cpu().detach().numpy()
+#                disc_probs = np.clip(disc_probs.astype(np.float), 1e-14, 1 - 1e-14)
+#                density_ratios[tmp:(tmp+batch_size_tmp)] = np.divide(disc_probs, 1-disc_probs)
+#                tmp += batch_size_tmp
+#            #end while
+#        #print("\n End computing density ratio.")
+#        return density_ratios[0:n_imgs]
 
 ###############################################################################
 '''                Function for different sampling methods                  '''
@@ -846,10 +817,9 @@ if args.Sampling == "RS":
         del burnin_imgs, burnin_densityratios; gc.collect()
         torch.cuda.empty_cache()
         ## Burn-in with real images
-        IMGSr_train = np.transpose(trainset.data, (0, 3, 1, 2))
-        IMGSr_train = IMGSr_train/255.0
-        IMGSr_train = (IMGSr_train-0.5)/0.5
-        burnin_densityratios2 = comp_density_ratio(IMGSr_train)
+        images_train_norm = images_train/255.0
+        images_train_norm = (images_train_norm-0.5)/0.5
+        burnin_densityratios2 = comp_density_ratio(images_train_norm)
         print((burnin_densityratios2.min(),np.median(burnin_densityratios2),burnin_densityratios2.max()))
         ## Rejection sampling
         enhanced_imgs = np.zeros((1, NC, IMG_SIZE, IMG_SIZE)) #initilize
@@ -941,32 +911,24 @@ PreNetFIDIS.load_state_dict(checkpoint_PreNet['net_state_dict'])
 #----------------------------------
 # IS for training data
 #load training data
-IMGSr_train = np.transpose(trainset.data, (0, 3, 1, 2))
-#rescale to [0,1]
-IMGSr_train = IMGSr_train/255.0
-#rescale to [-1,1]
-for i in range(3):
-    IMGSr_train[:,i,:,:] = (IMGSr_train[:,i,:,:] - 0.5) / 0.5
+images_train_norm = images_train/255.0
+images_train_norm = (images_train_norm-0.5)/0.5
 
 #----------------------------------
 ## FID and IS for testing data
-IMGSr_test = np.transpose(testset.data, (0, 3, 1, 2))
-#rescale to [0,1]
-IMGSr_test = IMGSr_test/255.0
-#rescale to [-1,1]
-for i in range(3):
-   IMGSr_test[:,i,:,:] = (IMGSr_test[:,i,:,:] - 0.5) / 0.5
+images_test_norm = images_test/255.0
+images_test_norm = (images_test_norm-0.5)/0.5
 
 if args.realdata_ISFID:
     #----------------------------------
     ## IS for training data
-    (IS_train_avg, IS_train_std) = IS_RAW(PreNetFIDIS, IMGSr_train, batch_size = args.IS_batch_size, splits=10, NGPU=NGPU, resize=resize)
+    (IS_train_avg, IS_train_std) = IS_RAW(PreNetFIDIS, images_train_norm , batch_size = args.IS_batch_size, splits=10, NGPU=NGPU, resize=resize)
     #----------------------------------
     ## IS for test data
-    (IS_test_avg, IS_test_std) = IS_RAW(PreNetFIDIS, IMGSr_test, batch_size = args.IS_batch_size, splits=10, NGPU=NGPU, resize=resize)
+    (IS_test_avg, IS_test_std) = IS_RAW(PreNetFIDIS, images_test_norm, batch_size = args.IS_batch_size, splits=10, NGPU=NGPU, resize=resize)
     #----------------------------------
     ## FID for test data
-    FID_test = FID_RAW(PreNetFIDIS, IMGSr_train, IMGSr_test, batch_size = args.FID_batch_size, NGPU=NGPU, resize=resize)
+    FID_test = FID_RAW(PreNetFIDIS, images_train_norm , images_test_norm, batch_size = args.FID_batch_size, NGPU=NGPU, resize=resize)
 
     print("\n IS train >>> mean: %.3f, std: %.3f" % (IS_train_avg, IS_train_std))
     print("\n IS test >> mean: %.3f, std %.3f" % (IS_test_avg, IS_test_std))
@@ -977,9 +939,9 @@ if args.realdata_ISFID:
 # Compute average density ratio on test set to select best lambda
 if args.DRE in ['DRE_F_SP', 'DRE_F_uLSIF', 'DRE_F_DSKL', 'DRE_F_BARR',
                 'DRE_P_SP', 'DRE_P_uLSIF', 'DRE_P_DSKL', 'DRE_P_BARR']:
-    train_densityratios = comp_density_ratio(IMGSr_train)
+    train_densityratios = comp_density_ratio(images_train_norm)
     print("Med/Mean/STD of density ratio on training set: %.3f,%.3f,%.3f" % (np.median(train_densityratios), np.mean(train_densityratios), np.std(train_densityratios)))
-    test_densityratios = comp_density_ratio(IMGSr_test)
+    test_densityratios = comp_density_ratio(images_test_norm)
     print("Med/Mean/STD of density ratio on test set: %.3f,%.3f,%.3f" % (np.median(test_densityratios), np.mean(test_densityratios), np.std(test_densityratios)))
     ks_test = ks_2samp(train_densityratios.reshape(-1), test_densityratios.reshape(-1))
     print("Kolmogorov-Smirnov test: stat. %.4E, pval %.4E" % (ks_test.statistic, ks_test.pvalue))
@@ -993,39 +955,15 @@ if args.comp_ISFID:
     start = timeit.default_timer()
     for nround in range(NROUND):
         print("Round " + str(nround) + ", %s+%s+%s:" % (args.GAN, args.DRE, args.Sampling))
-        if args.samp_selectwithinclass: #select nfake/n_class fake images within each class
-            if args.DRE == "None" and args.Sampling == "None":
-                fake_imgs_beforeReSel = fn_sampleGAN(NPOOL, samp_batch_size) #fake images before re-selecting
-            else:
-                fake_imgs_beforeReSel = fn_enhanceSampler(NPOOL, batch_size=samp_batch_size)
-            fake_labels_beforeReSel = PredictLabel(fake_imgs_beforeReSel, PreNetFIDIS, N_CLASS = N_CLASS, BATCH_SIZE = 100, resize = resize)
-            num_per_class_beforeReSel = [len(list(group)) for key, group in groupby(np.sort(fake_labels_beforeReSel))] #number of samples in each class
-            fake_imgs = np.zeros((NFAKE, NC, IMG_SIZE, IMG_SIZE))
-            tmp = 0
-            for i in range(N_CLASS):
-                N_tmp = num_per_class_beforeReSel[i] #number of fake images per class
-                N_tmp2 = int(NFAKE/N_CLASS) #number of fake images we need from each class
-                if N_tmp < N_tmp2:
-                    raise Exception('Class %d does not have enough samples (%d<%d) !!!' % (int(i), int(N_tmp), int(N_tmp2)))
-                idx_i_tmp = np.where(fake_labels_beforeReSel==i)[0]
-                np.random.shuffle(idx_i_tmp)
-                idx_i_tmp = idx_i_tmp[0:N_tmp2]
-                fake_imgs[tmp:(tmp+N_tmp2)] = fake_imgs_beforeReSel[idx_i_tmp]
-                tmp += N_tmp2
-        else: #not select within each class
-            timer_samp1 = timeit.default_timer()
-            if args.DRE == "None" and args.Sampling == "None":
-                print("Directly sample from GAN >>>")
-                fake_imgs = fn_sampleGAN(NFAKE, samp_batch_size)
-                #from matplotlib.pyplot import imshow
-                #x = np.transpose(fake_imgs, (0, 2, 3, 1))
-                #x = 0.5*x+0.5
-                #imshow(x[1000])
-            else:
-                print("Enhanced Sampling >>>")
-                fake_imgs = fn_enhanceSampler(NFAKE, batch_size=samp_batch_size)
-            timer_samp2 = timeit.default_timer()
-            print("Sampling %d samples takes %f s" % (NFAKE, timer_samp2-timer_samp1))
+        timer_samp1 = timeit.default_timer()
+        if args.DRE == "None" and args.Sampling == "None":
+            print("Directly sample from GAN >>>")
+            fake_imgs = fn_sampleGAN(NFAKE, samp_batch_size)
+        else:
+            print("Enhanced Sampling >>>")
+            fake_imgs = fn_enhanceSampler(NFAKE, batch_size=samp_batch_size)
+        timer_samp2 = timeit.default_timer()
+        print("Sampling %d samples takes %f s" % (NFAKE, timer_samp2-timer_samp1))
         #----------------------------------
         ## IS for fake imgs
         print("\n Computing IS for %s+%s+%s >>> " % (args.GAN, args.DRE, args.Sampling))
@@ -1036,7 +974,7 @@ if args.comp_ISFID:
         #----------------------------------
         ## FID for fake imgs
         print("\n Computing FID for %s+%s+%s >>> " % (args.GAN, args.DRE, args.Sampling))
-        FID_EnhanceSampling_all[nround] = FID_RAW(PreNetFIDIS, IMGSr_train, fake_imgs, batch_size = args.FID_batch_size, NGPU=NGPU, resize=resize)
+        FID_EnhanceSampling_all[nround] = FID_RAW(PreNetFIDIS, images_train_norm, fake_imgs, batch_size = args.FID_batch_size, NGPU=NGPU, resize=resize)
         torch.cuda.empty_cache()
         print("\n FID for %s+%s_%.3f+%s: %.3f" % (args.GAN, args.DRE, args.lambda_DRE, args.Sampling, FID_EnhanceSampling_all[nround]))
     #end for nround

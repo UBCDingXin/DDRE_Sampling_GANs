@@ -1,30 +1,19 @@
 #!/bin/bash
 
-
-# echo "-------------------------------------------------------------------------------------------------"
-# echo "Pre-train a ResNet34 for feature extraction"
-# python3 PreTrainCNN.py --CNN ResNet34 --isometric_map --transform
-#
-#
-# echo "-------------------------------------------------------------------------------------------------"
-# echo "Pre-train an Inceptionv3 for evaluation"
-# python3 PreTrainCNN.py --CNN InceptionV3 --transform
-
-
-# echo "-------------------------------------------------------------------------------------------------"
-# echo "DCGAN"
-# echo "-------------------------------------------------------------------------------------------------"
-# echo "Baseline"
-# python3 main.py --GAN DCGAN --DRE None --Sampling None --samp_nfake 50000 --comp_ISFID --samp_round 1 --realdata_ISFID
-# echo "-------------------------------------------------------------------------------------------------"
-# echo "DRS"
-# python3 main.py --GAN DCGAN --DRE disc --Sampling RS --samp_nfake 50000 --comp_ISFID --samp_round 1
+echo "-------------------------------------------------------------------------------------------------"
+echo "DCGAN"
+echo "-------------------------------------------------------------------------------------------------"
+echo "Baseline"
+python3 main.py --GAN DCGAN --DRE None --Sampling None --samp_nfake 50000 --comp_ISFID --samp_round 1 --realdata_ISFID
+echo "-------------------------------------------------------------------------------------------------"
+echo "DRS"
+python3 main.py --GAN DCGAN --DRE disc --Sampling RS --samp_nfake 50000 --comp_ISFID --samp_round 1
 # echo "-------------------------------------------------------------------------------------------------"
 # echo "DRS keep train"
 # python3 main.py --GAN DCGAN --DRE disc_KeepTrain --Sampling RS --samp_nfake 50000 --comp_ISFID
-# echo "-------------------------------------------------------------------------------------------------"
-# echo "MH-GAN"
-# python3 main.py --GAN DCGAN --DRE disc_MHcal --Sampling MH --samp_nfake 50000 --comp_ISFID --samp_round 1
+echo "-------------------------------------------------------------------------------------------------"
+echo "MH-GAN"
+python3 main.py --GAN DCGAN --DRE disc_MHcal --Sampling MH --samp_nfake 50000 --comp_ISFID --samp_round 1
 #
 # ### baseline DREs
 # echo "-------------------------------------------------------------------------------------------------"
@@ -188,8 +177,8 @@
 
 
 
-# echo "-------------------------------------------------------------------------------------------------"
-# echo "WGANGP"
+echo "-------------------------------------------------------------------------------------------------"
+echo "WGANGP"
 # echo "-------------------------------------------------------------------------------------------------"
 # echo "Baseline"
 # python3 main.py --GAN WGANGP --DRE None --Sampling None --samp_nfake 50000 --comp_ISFID
@@ -288,8 +277,8 @@
 
 
 
-# echo "-------------------------------------------------------------------------------------------------"
-# echo "MMD-GAN"
+echo "-------------------------------------------------------------------------------------------------"
+echo "MMD-GAN"
 # echo "-------------------------------------------------------------------------------------------------"
 # echo "Baseline"
 # python3 main.py --GAN MMDGAN --DRE None --Sampling None --samp_nfake 50000 --comp_ISFID
@@ -368,3 +357,31 @@
 # echo "-------------------------------------------------------------------------------------------------"
 # echo "MMDGAN DRE-F-BARR+RS ReLU lambda 10"
 # python3 main.py --GAN MMDGAN --DRE DRE_F_BARR --DR_Net MLP5 --Sampling RS --lambda_DRE 10 --batch_size_DRE 512 --epoch_DRE 200 --samp_nfake 50000 --DR_final_ActFn ReLU --samp_batch_size 10000 --resumeTrain_DRE 0 --FID_batch_size 200 --IS_batch_size 200 --samp_round 3 --base_lr_DRE 1e-5 --not_decay_lr_DRE #--comp_ISFID
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# echo "-------------------------------------------------------------------------------------------------"
+# python3 main2.py --GAN DCGAN --DRE None --Sampling None --samp_nfake 50000 --comp_ISFID --IS_batch_size 100 --FID_batch_size 100 --samp_round 1
+# echo "-------------------------------------------------------------------------------------------------"
+# python3 main2.py --GAN DCGAN --DRE disc --Sampling RS --samp_nfake 50000 --comp_ISFID --IS_batch_size 100 --FID_batch_size 100 --samp_round 1
+# echo "-------------------------------------------------------------------------------------------------"
+# python3 main2.py --GAN DCGAN --DRE DRE_F_SP --Sampling SIR --lambda_DRE 0.01 --samp_nfake 50000 --DR_final_ActFn ReLU --epoch_DRE 200 --base_lr_DRE 1e-4 --comp_ISFID --IS_batch_size 100 --FID_batch_size 100 --samp_round 1
+# echo "-------------------------------------------------------------------------------------------------"
+# python3 main2.py --GAN DCGAN --DRE DRE_F_SP --Sampling RS --lambda_DRE 0.01 --samp_nfake 50000 --DR_final_ActFn ReLU --epoch_DRE 200 --base_lr_DRE 1e-4 --comp_ISFID --IS_batch_size 100 --FID_batch_size 100 --samp_round 1

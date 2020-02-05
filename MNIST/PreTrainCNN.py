@@ -3,11 +3,11 @@ Train and Test CNN
 
 Store model in disk
 
-Pre-trained models are then used for GAN evaluation (i.e., InceptionV3) or DRA in feature space
+Pre-trained models are then used for GAN evaluation (i.e., InceptionV3) or DRE in feature space
 
 """
 
-wd = '/home/xin/OneDrive/Working_directory/DDRE_Sampling_GANs/CIFAR10'
+wd = '/home/xin/OneDrive/Working_directory/DDRE_Sampling_GANs/MNIST'
 
 import argparse
 import shutil
@@ -29,6 +29,8 @@ import csv
 from models import *
 from tqdm import tqdm
 import gc
+import h5py
+from utils import IMGs_dataset
 
 #############################
 # Settings
@@ -38,23 +40,25 @@ parser = argparse.ArgumentParser(description='Pre-train CNNs')
 parser.add_argument('--CNN', type=str, default='ResNet34',
                     help='CNN for training (default: "ResNet34"); Candidates: VGGs(11,13,16,19), ResNet(18,34,50,101), InceptionV3')
 parser.add_argument('--isometric_map', action='store_true', default=False,
-                    help='isometric mapping? True for GAN evaluation; False for DRA in feature space')
+                    help='isometric mapping? False for GAN evaluation; True for DRE in feature space')
 parser.add_argument('--epochs', type=int, default=200, metavar='N',
                     help='number of epochs to train CNNs (default: 200)')
 parser.add_argument('--batch_size_train', type=int, default=256, metavar='N',
                     help='input batch size for training')
 parser.add_argument('--batch_size_test', type=int, default=256, metavar='N',
                     help='input batch size for testing')
-parser.add_argument('--base_lr', type=float, default=0.1,
+parser.add_argument('--base_lr', type=float, default=0.01,
                     help='learning rate, default=0.1')
 parser.add_argument('--weight_dacay', type=float, default=1e-4,
                     help='Weigth decay, default=1e-4')
 parser.add_argument('--seed', type=int, default=2019, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--transform', action='store_true', default=False,
-                    help='flip or crop images for CNN training')
+                    help='crop images for CNN training')
 parser.add_argument('--num_classes', type=int, default=10, metavar='N',
                     help='number of classes')
+parser.add_argument('--N_TRAIN', type=int, default=5000, metavar='N',
+                    help='number of training images')
 args = parser.parse_args()
 
 # cuda
@@ -71,10 +75,12 @@ torch.backends.cudnn.deterministic = True
 
 # directories for checkpoint, images and log files
 save_models_folder = wd + '/Output/saved_models/'
-os.makedirs(save_models_folder,exist_ok=True)
+if not os.path.exists(save_models_folder):
+    os.makedirs(save_models_folder)
 
 save_logs_folder = wd + '/Output/saved_logs/'
-os.makedirs(save_logs_folder,exist_ok=True)
+if not os.path.exists(save_logs_folder):
+    os.makedirs(save_logs_folder)
 
 
 
@@ -92,14 +98,6 @@ def net_initialization(Pretrained_CNN_Name, isometric_map = False, num_classes=1
         net = ResNet50(isometric_map = isometric_map, num_classes=num_classes, ngpu = ngpu)
     elif Pretrained_CNN_Name == "ResNet101":
         net = ResNet101(isometric_map = isometric_map, num_classes=num_classes, ngpu = ngpu)
-    # elif Pretrained_CNN_Name == "VGG11":
-    #     net = VGG("VGG11", isometric_map = isometric_map)
-    # elif Pretrained_CNN_Name == "VGG13":
-    #     net = VGG("VGG13", isometric_map = isometric_map)
-    # elif Pretrained_CNN_Name == "VGG16":
-    #     net = VGG("VGG16", isometric_map = isometric_map)
-    # elif Pretrained_CNN_Name == "VGG19":
-        # net = VGG("VGG19", isometric_map = isometric_map)
     elif Pretrained_CNN_Name == "InceptionV3":
         net = Inception3(num_classes=num_classes, aux_logits=True, transform_input=False)
 
@@ -124,7 +122,9 @@ def adjust_learning_rate(optimizer, epoch, BASE_LR_CNN):
         lr = 0.1 + (BASE_LR_CNN - 0.1) * epoch / 10.
     if epoch >= 100:
         lr /= 10
-    if epoch >= 150:
+    if epoch >= 500:
+        lr /= 10
+    if epoch >= 1000:
         lr /= 10
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
@@ -169,7 +169,7 @@ def test_CNN(verbose=True):
     with torch.no_grad():
         correct = 0
         total = 0
-        for images, labels in testloader:
+        for batch_idx, (images, labels) in enumerate(testloader):
             if args.CNN == "InceptionV3":
                 images = nn.functional.interpolate(images, size = (299,299), scale_factor=None, mode='bilinear', align_corners=False)
             images = images.type(torch.float).cuda()
@@ -187,40 +187,47 @@ def test_CNN(verbose=True):
 # Training and Testing
 ###########################################################################################################
 # data loader
-means = (0.5, 0.5, 0.5) #Inceptionv3 acc 95.36??    83.17
-stds = (0.5, 0.5, 0.5)
-if args.transform:
-    transform_train = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    # transforms.RandomRotation(15),
-    transforms.ToTensor(),
-    transforms.Normalize(means, stds),
-    ])
+if args.N_TRAIN==60000:
+    if args.transform:
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(28, padding=4),
+            transforms.RandomRotation(15),
+            transforms.ToTensor(),
+            transforms.Normalize([0.5], [0.5]),
+        ])
+    else:
+        transform_train = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize([0.5], [0.5]),
+        ])
+    trainset = torchvision.datasets.MNIST(root='./data', train=True, download=True, transform=transform_train)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size_train, shuffle=True, num_workers=8)
 else:
-    transform_train = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(means, stds),
-    ])
+    h5py_file = wd+'/data/MNIST_reduced_trainset_'+str(args.N_TRAIN)+'.h5'
+    hf = h5py.File(h5py_file, 'r')
+    images_train = hf['images_train'][:]
+    labels_train = hf['labels_train'][:]
+    hf.close()
+    if args.transform:
+        trainset = IMGs_dataset(images_train, labels_train, normalize=True, rotate=True, degrees = 15, crop=True, crop_size=28, crop_pad=4)
+    else:
+        trainset = IMGs_dataset(images_train, labels_train, normalize=True, rotate=False, degrees = 15, crop=False, crop_size=28, crop_pad=4)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size_train, shuffle=True, num_workers=8)
+#end if args.N_TRAIN
 
 transform_test = transforms.Compose([
     transforms.ToTensor(),
-    transforms.Normalize(means, stds),
+    transforms.Normalize([0.5], [0.5]),
 ])
-
-trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size_train, shuffle=True, num_workers=8)
-
-testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
+testset = torchvision.datasets.MNIST(root='./data', train=False, download=True, transform=transform_test)
 testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size_test, shuffle=False, num_workers=8)
-
 
 # model initialization
 net, net_name = net_initialization(args.CNN, isometric_map = args.isometric_map, num_classes=args.num_classes, ngpu = ngpu)
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.SGD(net.parameters(), lr = args.base_lr, momentum= 0.9, weight_decay=args.weight_dacay)
 
-filename_ckpt = save_models_folder + '/ckpt_' + net_name + '_epoch_' + str(args.epochs) +  '_SEED_' + str(args.seed) + '_Transformation_' + str(args.transform)
+filename_ckpt = save_models_folder + '/ckpt_' + net_name + '_epoch_' + str(args.epochs) +  '_SEED_' + str(args.seed) + '_Transformation_' + str(args.transform) + '_NTRAIN_' + str(args.N_TRAIN)
 
 # training
 if not os.path.isfile(filename_ckpt):

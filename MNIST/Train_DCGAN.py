@@ -8,8 +8,8 @@ from torchvision.utils import save_image
 import numpy as np
 import os
 
-NC=3
-IMG_SIZE=32
+NC=1
+IMG_SIZE=28
 
 
 ############################################################################################
@@ -32,6 +32,9 @@ def train_DCGAN(EPOCHS_GAN, GAN_Latent_Length, trainloader, netG, netD, optimize
     else:
         gen_iterations = 0
     #end if
+
+    n_row=10
+    z_fixed = torch.randn(n_row**2, GAN_Latent_Length, 1, 1, dtype=torch.float).to(device)
 
     for epoch in range(ResumeEpoch, EPOCHS_GAN):
         for batch_idx, (batch_train_images, _) in enumerate(trainloader):
@@ -90,22 +93,11 @@ def train_DCGAN(EPOCHS_GAN, GAN_Latent_Length, trainloader, netG, netD, optimize
 
             if gen_iterations % 100 == 0:
                 with torch.no_grad():
-                    n_row=10
-                    z = torch.from_numpy(np.random.normal(0, 1, (n_row**2, GAN_Latent_Length, 1, 1))).type(torch.float).to(device)
-                    gen_imgs = netG(z)
+                    gen_imgs = netG(z_fixed)
                     gen_imgs = gen_imgs.detach()
                 save_image(gen_imgs.data, save_DCGANimages_folder +'%d.png' % gen_iterations, nrow=n_row, normalize=True)
 
-
-            #step = (batch_idx+1) + (epoch+1)*len(trainloader)
-            # if step%100 == 0:#print generated images every 100 iterations
-            #     n_row=10
-            #     z = torch.from_numpy(np.random.normal(0, 1, (n_row**2, GAN_Latent_Length, 1, 1))).type(torch.float).to(device)
-            #     gen_imgs = netG(z)
-            #     save_image(gen_imgs.data, save_DCGANimages_folder +'%d.png' % step, nrow=n_row, normalize=True)
-
-
-        if save_models_folder is not None and (epoch+1) % 50 == 0:
+        if save_models_folder is not None and (epoch+1) % 200 == 0:
             save_file = save_models_folder + "/DCGAN_checkpoint_intrain/"
             if not os.path.exists(save_file):
                 os.makedirs(save_file)

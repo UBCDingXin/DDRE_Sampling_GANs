@@ -1,6 +1,6 @@
 '''
 
-Density Ration Approximation via Multilayer Perceptron
+Density Ration Estimation via Multilayer Perceptron
 
 Multilayer Perceptron : trained to model density ratio in a feature space
 
@@ -11,6 +11,10 @@ Its input is the output of a pretrained Deep CNN, say ResNet-34
 import torch
 import torch.nn as nn
 
+IMG_SIZE=28
+NC=1
+
+
 cfg = {"MLP3": [2048,1024,512],
        "MLP5": [2048,1024,512,256,128],
        "MLP7": [2048,2048,1024,1024,512,256,128],
@@ -18,7 +22,7 @@ cfg = {"MLP3": [2048,1024,512],
 
 
 class DR_MLP(nn.Module):
-    def __init__(self, MLP_name, ngpu=1, final_ActFn="ReLU", p_dropout=0.4, init_in_dim = 32*32*3):
+    def __init__(self, MLP_name, ngpu=1, final_ActFn="Softplus", p_dropout=0.4, init_in_dim = IMG_SIZE**2*NC):
         super(DR_MLP, self).__init__()
         self.ngpu = ngpu
         self.init_in_dim = init_in_dim
@@ -57,6 +61,6 @@ class DR_MLP(nn.Module):
 
 if __name__ == "__main__":
     net = DR_MLP('MLP9').cuda()
-    x = torch.randn((5,32*32*3)).cuda()
+    x = torch.randn((5,IMG_SIZE**2*NC)).cuda()
     out = net(x)
     print(out.size())

@@ -1,7 +1,10 @@
 # Codes for the experiments in "[Subsampling Generative Adversarial Networks: Density Ratio Estimation in Feature Space with Softplus Loss](https://arxiv.org/abs/1909.10670)"
 ## 1. To do list
 - [x] The 25 2-D Gaussians Simulation
+- [x] The Reduced MNIST dataset
 - [x] The CIFAR-10 dataset
+- [x] The CelebA dataset
+- [x] The STL-10 dataset
 
 
 ## 2. Sample Usage

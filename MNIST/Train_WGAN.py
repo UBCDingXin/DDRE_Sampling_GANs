@@ -11,8 +11,8 @@ from torch import autograd
 import os
 
 
-NC=3
-IMG_SIZE=32
+NC=1
+IMG_SIZE=28
 
 ############################################################################################
 # Train WGANs
@@ -25,8 +25,8 @@ def calc_gradient_penalty_WGAN(netD, real_data, fake_data, LAMBDA=10, device="cu
     #LAMBDA: Gradient penalty lambda hyperparameter
     # print "real_data: ", real_data.size(), fake_data.size()
     alpha = torch.rand(real_data.size(0), 1)
-    alpha = alpha.expand(real_data.size(0), 3*32*32)
-    alpha = alpha.view(real_data.size(0), 3, 32, 32)
+    alpha = alpha.expand(real_data.size(0), NC*IMG_SIZE**2)
+    alpha = alpha.view(real_data.size(0), NC, IMG_SIZE, IMG_SIZE)
     alpha = alpha.to(device)
 
     interpolates = alpha * real_data + ((1 - alpha) * fake_data)
@@ -61,6 +61,10 @@ def train_WGANGP(EPOCHS_GAN, GAN_Latent_Length, trainloader, netG, netD, optimiz
     else:
         gen_iterations = 0
     #end if
+
+
+    n_row=10
+    z_fixed = torch.randn(n_row**2, GAN_Latent_Length, 1, 1, dtype=torch.float).to(device)
 
     for epoch in range(ResumeEpoch, EPOCHS_GAN):
 
@@ -121,9 +125,7 @@ def train_WGANGP(EPOCHS_GAN, GAN_Latent_Length, trainloader, netG, netD, optimiz
 
             if gen_iterations % 100 == 0:
                 with torch.no_grad():
-                    n_row=10
-                    z = torch.from_numpy(np.random.normal(0, 1, (n_row**2, GAN_Latent_Length, 1, 1))).type(torch.float).to(device)
-                    gen_imgs = netG(z)
+                    gen_imgs = netG(z_fixed)
                     gen_imgs = gen_imgs.detach()
                 save_image(gen_imgs.data, save_GANimages_folder +'%d.png' % gen_iterations, nrow=n_row, normalize=True)
         #end for batch_idx

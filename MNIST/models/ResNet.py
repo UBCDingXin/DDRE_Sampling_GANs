@@ -22,6 +22,9 @@ import torch.nn.functional as F
 
 from torch.autograd import Variable
 
+IMG_SIZE=28
+NC=1
+
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -77,7 +80,7 @@ class Bottleneck(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, block, num_blocks, isometric_map = True, num_classes=10, nc=3, ngpu = 1):
+    def __init__(self, block, num_blocks, isometric_map = True, num_classes=10, nc=1, ngpu = 1):
         super(ResNet, self).__init__()
         self.in_planes = 64
         self.isometric_map = isometric_map
@@ -88,18 +91,20 @@ class ResNet(nn.Module):
             nn.BatchNorm2d(64),
             nn.ReLU(),
             self._make_layer(block, 64, num_blocks[0], stride=1),  # h=h
-            self._make_layer(block, 128, num_blocks[1], stride=2), 
+            self._make_layer(block, 128, num_blocks[1], stride=2),
             self._make_layer(block, 256, num_blocks[2], stride=2),
             self._make_layer(block, 512, num_blocks[3], stride=2),
             nn.AvgPool2d(kernel_size=4)
         )
         self.classifier = nn.Linear(512*block.expansion, num_classes)
         self.classifier_1 = nn.Sequential(
-                nn.Linear(512*block.expansion, 32*32*3),
-                #nn.ReLU()
-                #nn.Tanh() #exist in the first version
+                nn.Linear(512*block.expansion, IMG_SIZE**2*NC),
                 )
-        self.classifier_2 = nn.Linear(32*32*3, num_classes)
+        self.classifier_2 = nn.Sequential(
+                nn.BatchNorm1d(IMG_SIZE**2*NC),
+                nn.ReLU(),
+                nn.Linear(IMG_SIZE**2*NC, num_classes)
+        )
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1]*(num_blocks-1)
@@ -148,7 +153,7 @@ def ResNet152(isometric_map = False, num_classes=10, ngpu = 1):
 
 if __name__ == "__main__":
     net = ResNet50(isometric_map = True, num_classes=10, ngpu = 2).cuda()
-    x = torch.randn(256,3,32,32).cuda()
+    x = torch.randn(256,1,28,28).cuda()
     out, features = net(x)
     print(out.size())
     print(features.size())

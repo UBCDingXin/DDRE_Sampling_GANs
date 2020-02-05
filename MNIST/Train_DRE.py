@@ -9,19 +9,14 @@ import torch
 import torch.nn as nn
 import numpy as np
 import os
+import gc
 
-def adjust_learning_rate(optimizer, epoch, BASE_LR_DRE):
+def adjust_learning_rate(optimizer, epoch, BASE_LR_DRE, EPOCHS_DRE, decay_epochs=400):
     lr = BASE_LR_DRE #1e-4
 
-    if epoch >= 100:
-        lr /= 10
-
-    # if epoch >= 25:
-    #     lr /= 10 #1e-5
-    # if epoch >= 50:
-    #     lr /= 10 #1e-6
-    # if epoch >= 150:
-    #     lr /= 10 #1e-7
+    for i in range(EPOCHS_DRE//decay_epochs):
+        if epoch >= (i+1)*decay_epochs:
+            lr /= 10
 
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
@@ -77,21 +72,17 @@ def train_DREP(NGPU, EPOCHS_DRE, BASE_LR_DRE, trainloader, net, optimizer, netG,
             BATCH_SIZE = batch_real_images.shape[0]
 
             batch_real_images = batch_real_images.type(torch.float).to(device)
+            batch_real_labels = batch_real_labels.type(torch.long).to(device)
 
             netG.eval()
             with torch.no_grad():
-                if name_gan is None or name_gan[0]!="c":
-                    z = torch.randn(BATCH_SIZE, GAN_Latent_Length, 1, 1, dtype=torch.float).to(device)
-                    batch_fake_images = netG(z)
-                elif name_gan[0]=="c":
-                    z = torch.randn(BATCH_SIZE, GAN_Latent_Length, dtype=torch.float).to(device)
-                    batch_real_labels = batch_real_labels.type(torch.long).to(device)
-                    batch_fake_images = netG(z,batch_real_labels)
+                z = torch.randn(BATCH_SIZE, GAN_Latent_Length, 1, 1, dtype=torch.float).to(device)
+                batch_fake_images = netG(z,batch_real_labels)
                 batch_fake_images = batch_fake_images.detach()
 
             #Forward pass
-            DR_real = net(batch_real_images)
-            DR_fake = net(batch_fake_images)
+            DR_real = net(batch_real_images, batch_real_labels)
+            DR_fake = net(batch_fake_images, batch_real_labels)
 
             # print("training:%f/%f" % (DR_real.detach().cpu().numpy().mean(),DR_fake.detach().cpu().numpy().mean()))
 
@@ -107,10 +98,8 @@ def train_DREP(NGPU, EPOCHS_DRE, BASE_LR_DRE, trainloader, net, optimizer, netG,
                 #SQ loss
                 loss = 0.5* torch.mean(DR_fake**2) - torch.mean(DR_real) + LAMBDA * (torch.mean(DR_fake) - 1)**2
             elif loss_type == "DSKL": #DSKL loss proposed in "Deep density ratio estimation for change point detection"
-                # loss = - torch.mean(torch.log(DR_fake + 1e-14)) + torch.mean(torch.log(DR_real + 1e-14)) + LAMBDA * (torch.mean(DR_fake) - 1)**2
                 loss = - torch.mean(torch.log(DR_real + 1e-14)) + torch.mean(torch.log(DR_fake + 1e-14)) + LAMBDA * (torch.mean(DR_fake) - 1)**2
             elif loss_type == "BARR": #BARR loss proposed in "Deep density ratio estimation for change point detection"
-                # loss = - torch.mean(torch.log(DR_fake + 1e-14)) + LAMBDA * (torch.abs(torch.mean(DR_real)-1))
                 loss = - torch.mean(torch.log(DR_real + 1e-14)) + LAMBDA * (torch.abs(torch.mean(DR_fake)-1))
 
             #backward pass
@@ -120,26 +109,17 @@ def train_DREP(NGPU, EPOCHS_DRE, BASE_LR_DRE, trainloader, net, optimizer, netG,
 
             train_loss += loss.cpu().item()
 
-            # ### debugging
-            # net.eval()
-            # netG.eval()
-            # #with torch.no_grad():
-            # z = torch.randn(BATCH_SIZE, GAN_Latent_Length, 1, 1, dtype=torch.float).to(device)
-            # batch_fake_images = netG(z)
-            # DR_real2 = net(batch_real_images).detach().cpu().numpy()
-            # DR_fake2 = net(batch_fake_images.detach()).detach().cpu().numpy()
-            # print("Debug:%f/%f" % (DR_real2.mean(),DR_fake2.mean()))
         #end for
-        print('DRE_P_'+loss_type+'-LAMBDA'+str(LAMBDA)+': [epoch %d/%d] train_loss:%.3f' % (epoch+1, EPOCHS_DRE, train_loss/(batch_idx+1)))
+        print('cDRE_P_'+loss_type+'-LAMBDA'+str(LAMBDA)+': [epoch %d/%d] train_loss:%.3f' % (epoch+1, EPOCHS_DRE, train_loss/(batch_idx+1)))
 
         avg_train_loss.append(train_loss/(batch_idx+1))
 
         # save checkpoint
         if save_models_folder is not None and (epoch+1) % 50 == 0:
-            save_file = save_models_folder + "/DRE_checkpoint_epoch/"
+            save_file = save_models_folder + "/cDRE_checkpoint_epoch/"
             if not os.path.exists(save_file):
                 os.makedirs(save_file)
-            save_file = save_file + "DREP_checkpoint_epoch" + str(epoch+1) + ".pth"
+            save_file = save_file + "cDREP_checkpoint_epoch" + str(epoch+1) + ".pth"
             torch.save({
                     'epoch': epoch,
                     'net_state_dict': net.state_dict(),
@@ -147,7 +127,7 @@ def train_DREP(NGPU, EPOCHS_DRE, BASE_LR_DRE, trainloader, net, optimizer, netG,
             }, save_file)
 
             # save loss
-            log_file = save_models_folder + "/DRE_checkpoint_epoch/DREP_train_loss_epoch" + str(epoch+1) + ".npz"
+            log_file = save_models_folder + "/cDRE_checkpoint_epoch/cDREP_train_loss_epoch" + str(epoch+1) + ".npz"
             np.savez(log_file, np.array(avg_train_loss))
     #end for epoch
 
@@ -156,7 +136,7 @@ def train_DREP(NGPU, EPOCHS_DRE, BASE_LR_DRE, trainloader, net, optimizer, netG,
 
 ###############################################################################
 # DRE in Feature Space
-def train_DREF(NGPU, EPOCHS_DRE, BASE_LR_DRE, trainloader, net, optimizer, PreNetDRE, netG, GAN_Latent_Length, LAMBDA=10, n_classes = 10, save_models_folder = None, ResumeEpoch = 0, loss_type = "SP", device="cuda", not_decay_lr=False, name_gan = None):
+def train_DREF(NGPU, EPOCHS_DRE, BASE_LR_DRE, trainloader, net, optimizer, PreNetDRE, netG, GAN_Latent_Length, LAMBDA=10, n_classes = 10, save_models_folder = None, ResumeEpoch = 0, loss_type = "SP", device="cuda", not_decay_lr=False, decay_epochs=400, name_gan = None):
 
     net = net.to(device)
     PreNetDRE = PreNetDRE.to(device)
@@ -182,7 +162,8 @@ def train_DREF(NGPU, EPOCHS_DRE, BASE_LR_DRE, trainloader, net, optimizer, PreNe
 
     for epoch in range(ResumeEpoch, EPOCHS_DRE):
         if not not_decay_lr:
-            adjust_learning_rate(optimizer, epoch, BASE_LR_DRE)
+            # adjust_learning_rate(optimizer, epoch, BASE_LR_DRE)
+            adjust_learning_rate(optimizer, epoch, BASE_LR_DRE, EPOCHS_DRE, decay_epochs)
 
         train_loss = 0
 
@@ -193,16 +174,15 @@ def train_DREF(NGPU, EPOCHS_DRE, BASE_LR_DRE, trainloader, net, optimizer, PreNe
             BATCH_SIZE = batch_real_images.shape[0]
 
             batch_real_images = batch_real_images.type(torch.float).to(device)
+            batch_real_labels = batch_real_labels.type(torch.long).to(device)
 
             PreNetDRE.eval()
             netG.eval()
             with torch.no_grad():
+                z = torch.randn(BATCH_SIZE, GAN_Latent_Length, 1, 1, dtype=torch.float).to(device)
                 if name_gan is None or name_gan[0]!="c":
-                    z = torch.randn(BATCH_SIZE, GAN_Latent_Length, 1, 1, dtype=torch.float).to(device)
                     batch_fake_images = netG(z)
                 elif name_gan[0]=="c":
-                    z = torch.randn(BATCH_SIZE, GAN_Latent_Length, dtype=torch.float).to(device)
-                    batch_real_labels = batch_real_labels.type(torch.long).to(device)
                     batch_fake_images = netG(z,batch_real_labels)
                 batch_fake_images = batch_fake_images.detach()
                 _, batch_features_real = PreNetDRE(batch_real_images)
@@ -238,12 +218,37 @@ def train_DREF(NGPU, EPOCHS_DRE, BASE_LR_DRE, trainloader, net, optimizer, PreNe
             optimizer.step()
 
             train_loss += loss.cpu().item()
+
+            ### debugging
+            if (batch_idx==(len(trainloader)-1)) or (batch_idx==int(len(trainloader)/2)):
+                print("[step %d/%d] [epoch %d/%d] [training:%f/%f] [loss %.3f]" % (batch_idx, len(trainloader),epoch+1, EPOCHS_DRE, \
+                                                                                    DR_real.mean(), DR_fake.mean(), loss.detach().cpu().item() ))
+                del batch_fake_images; gc.collect()
+                PreNetDRE.eval()
+                net.eval()
+                netG.eval()
+                with torch.no_grad():
+                    z = torch.randn(BATCH_SIZE, GAN_Latent_Length, dtype=torch.float).to(device)
+                    if name_gan is None or name_gan[0]!="c":
+                        batch_fake_images = netG(z)
+                    elif name_gan[0]=="c":
+                        batch_fake_images = netG(z, batch_real_labels)
+                    batch_fake_images = batch_fake_images.detach()
+                    _, batch_features_real = PreNetDRE(batch_real_images)
+                    batch_features_real = batch_features_real.detach()
+                    _, batch_features_fake = PreNetDRE(batch_fake_images)
+                    batch_features_fake = batch_features_fake.detach()
+                    DR_real2 = net(batch_features_real).detach().cpu().numpy()
+                    DR_fake2 = net(batch_features_fake).detach().cpu().numpy()
+                    print("[step %d/%d] [epoch %d/%d] [Debuging:%f/%f]" % (batch_idx, len(trainloader),epoch+1, EPOCHS_DRE, DR_real2.mean(),DR_fake2.mean()))
+                del batch_real_images, batch_fake_images; gc.collect()
+        #end for batch_idx
         print('DRE_F_'+loss_type+'-LAMBDA'+str(LAMBDA)+': [epoch %d/%d] train_loss:%.3f' % (epoch+1, EPOCHS_DRE, train_loss/(batch_idx+1)))
 
         avg_train_loss.append(train_loss/(batch_idx+1))
 
         # save checkpoint
-        if save_models_folder is not None and (epoch+1) % 50 == 0:
+        if save_models_folder is not None and (epoch+1) % 1000 == 0:
             save_file = save_models_folder + "/DRE_checkpoint_epoch/"
             if not os.path.exists(save_file):
                 os.makedirs(save_file)
