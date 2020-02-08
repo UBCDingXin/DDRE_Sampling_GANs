@@ -93,12 +93,10 @@ Frechet Inception Distance versus epoch of DCGAN training. The grey line stands 
 # Misc Notes
 If you use this code, please cite
 ```text
-@misc{ding2019subsampling,
-    title={Subsampling Generative Adversarial Networks: Density Ratio Estimation in Feature Space with Softplus Loss},
-    author={Xin Ding and Z. Jane Wang and William J. Welch},
-    year={2019},
-    eprint={1909.10670},
-    archivePrefix={arXiv},
-    primaryClass={cs.LG}
+@article{ding2019subsampling,
+  title={Subsampling Generative Adversarial Networks: Density Ratio Estimation in Feature Space with Softplus Loss},
+  author={Ding, Xin and Wang, Z. Jane and Welch, William J.},
+  journal={arXiv preprint arXiv:1909.10670},
+  year={2019}
 }
 ```
