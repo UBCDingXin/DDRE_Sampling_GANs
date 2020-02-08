@@ -73,23 +73,23 @@ python3 main.py --GAN SNGAN --epoch_gan 500 --DRE DRE_F_SP --Sampling RS --PreCN
 
 # 3. Some Results
 ## 3.1 25 2-D Gaussians
-<center>![](./images/simulation.png) </center>
+![](./images/simulation.png) 
 
 ## 3.2 CIFAR10
-<center>![](./images/cifar10.png) </center>
+![](./images/cifar10.png) 
 
 ### Inception Score versus epoch of DCGAN training. The grey line stands for epoch 60.
-<center>![](./images/IS_vs_EpochGAN.png) </center>
+![](./images/IS_vs_EpochGAN.png) 
 
 ### Frechet Inception Distance versus epoch of DCGAN training. The grey line stands for epoch 60.
-<center>![](./images/FID_vs_EpochGAN.png) </center> 
+![](./images/FID_vs_EpochGAN.png) 
 
 ## 3.3 Reduced MNIST
-<center>![](./images/mnist.png) </center> 
+![](./images/mnist.png) 
 
 
 ## 3.4 CelebA
-<center>![](./images/celeba.png) </center>  
+![](./images/celeba.png) 
 
 # Misc Notes
 If you use this code, please cite
