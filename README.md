@@ -1,4 +1,19 @@
-# Codes for the experiments in "[Subsampling Generative Adversarial Networks: Density Ratio Estimation in Feature Space with Softplus Loss](https://arxiv.org/abs/1909.10670)"
+# Codes for the experiments in "[Subsampling Generative Adversarial Networks: Density Ratio Estimation in Feature Space with Softplus Loss](https://ieeexplore.ieee.org/document/9034113?source=authoralert)"
+
+If you use this code, please cite
+```text
+@ARTICLE{Ding_2020,  
+    author={Ding, Xin and Wang, Z. Jane and Welch, William J.},
+    journal={IEEE Transactions on Signal Processing},  
+    title={Subsampling Generative Adversarial Networks: Density Ratio Estimation in Feature Space With {Softplus} Loss},   
+    year={2020},  
+    volume={68},  
+    number={},  
+    pages={1910-1922}
+}
+```
+
+
 # 1. To do list
 - [x] The 25 2-D Gaussians Simulation
 - [x] The Reduced MNIST dataset
@@ -91,13 +106,4 @@ python3 main.py --GAN SNGAN --epoch_gan 500 --DRE DRE_F_SP --Sampling RS --PreCN
 ## 3.4 CelebA
 ![](./images/celeba.png) 
 
-# Misc Notes
-If you use this code, please cite
-```text
-@article{ding2019subsampling,
-  title={Subsampling Generative Adversarial Networks: Density Ratio Estimation in Feature Space with Softplus Loss},
-  author={Ding, Xin and Wang, Z. Jane and Welch, William J.},
-  journal={arXiv preprint arXiv:1909.10670},
-  year={2019}
-}
-```
+
